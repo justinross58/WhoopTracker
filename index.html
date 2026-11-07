@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>Live HR</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --line: #232a32;
+    --text: #e8edf2;
+    --muted: #8a96a3;
+    --accent: #ff4d5e;
+    --accent-dim: rgba(255, 77, 94, .18);
+    --rr: #5cc8ff;
+    --ok: #3ddc97;
+    --warn: #ffb547;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; }
+  body { padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  main { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 0; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #4a525c; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.wait { background: var(--warn); }
+
+  .hero { background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: 22px 20px 18px; display: flex; align-items: flex-end; justify-content: space-between; }
+  .bpm { font-size: 96px; line-height: .9; font-weight: 700; font-variant-numeric: tabular-nums;
+    letter-spacing: -.03em; }
+  .bpm small { font-size: 18px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+  .heart { width: 34px; height: 34px; color: var(--accent); margin-bottom: 10px; transition: transform .12s ease-out; }
+  .heart.beat { transform: scale(1.25); }
+  .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .hero-right .label { font-size: 12px; color: var(--muted); }
+  .zone { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { font-size: 24px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+
+  .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 6px; }
+  .chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  canvas { width: 100%; display: block; }
+  #hrCanvas { height: 160px; }
+  #rrCanvas { height: 100px; }
+
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button { font: inherit; font-size: 16px; font-weight: 600; border: 0; border-radius: 14px;
+    padding: 15px 12px; color: var(--text); background: var(--panel); border: 1px solid var(--line); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; grid-column: 1 / -1; }
+  button:disabled { opacity: .4; }
+  .settings { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-size: 13px; color: var(--muted); padding: 0 4px; }
+  .settings input { width: 70px; font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; text-align: center; }
+  .settings label { display: flex; align-items: center; gap: 8px; }
+
+  .msg { font-size: 13px; line-height: 1.45; color: var(--muted); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .msg.warn { border-color: rgba(255,181,71,.4); color: #f3d9a8; }
+  .hidden { display: none !important; }
+  footer { font-size: 11px; color: #5d6670; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Live HR</h1>
+    <div class="status"><span id="dot" class="dot"></span><span id="statusText">Not connected</span></div>
+  </header>
+
+  <div id="unsupported" class="msg warn hidden">
+    This browser can't use Bluetooth. On Android, open this page in <b>Chrome</b>.
+    (iPhone Safari and Firefox don't support Web Bluetooth.) You can still try <b>Demo</b>.
+  </div>
+  <div id="noData" class="msg warn hidden">
+    Connected, but no heart rate yet. Make sure the band is on your wrist. If nothing arrives within
+    a minute, turn on <b>Heart Rate Broadcast</b> in the WHOOP app's device settings, then reconnect.
+  </div>
+
+  <section class="hero">
+    <div>
+      <svg id="heart" class="heart" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.9 4.5 6.6 4.5c2.1 0 3.6 1.2 4.4 2.4h2c.8-1.2 2.3-2.4 4.4-2.4 3.7 0 5.7 3.9 4.2 7.3C19.5 16.4 12 21 12 21z"/>
+      </svg>
+      <div class="bpm"><span id="bpm">--</span><small>bpm</small></div>
+    </div>
+    <div class="hero-right">
+      <span id="zone" class="zone hidden"></span>
+      <span class="label" id="elapsed">00:00</span>
+      <span class="label" id="battery"></span>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="stat"><div class="k">HRV (RMSSD)</div><div class="v"><span id="rmssd">--</span><small>ms</small></div></div>
+    <div class="stat"><div class="k">Avg</div><div class="v"><span id="avg">--</span><small>bpm</small></div></div>
+    <div class="stat"><div class="k">Min / Max</div><div class="v"><span id="minmax">--</span></div></div>
+    <div class="stat"><div class="k">Session HRV</div><div class="v"><span id="rmssdAll">--</span><small>ms</small></div></div>
+    <div class="stat"><div class="k">Last R-R</div><div class="v"><span id="lastRR">--</span><small>ms</small></div></div>
+    <div class="stat"><div class="k">Beats</div><div class="v"><span id="beats">0</span></div></div>
+  </section>
+
+  <section class="chart">
+    <div class="chart-head"><span>Heart rate · last 5 min</span><span id="hrRange"></span></div>
+    <canvas id="hrCanvas"></canvas>
+  </section>
+  <section class="chart">
+    <div class="chart-head"><span>R-R intervals · last 2 min</span><span id="rrNote"></span></div>
+    <canvas id="rrCanvas"></canvas>
+  </section>
+
+  <section class="buttons">
+    <button id="connectBtn" class="primary">Connect band</button>
+    <button id="saveBtn" disabled>Save CSV</button>
+    <button id="resetBtn">New session</button>
+    <button id="demoBtn" style="grid-column: 1 / -1">Demo (no band)</button>
+  </section>
+
+  <section class="settings">
+    <label>Max HR <input id="maxHr" type="number" inputmode="numeric" min="120" max="230" value="190"></label>
+    <label><input id="keepAwake" type="checkbox" checked style="width:auto"> Keep screen on</label>
+  </section>
+
+  <div class="msg">
+    Uses the band's standard Bluetooth heart-rate signal. It only listens: nothing is written to the
+    band and no data is removed, so the WHOOP app keeps working. Keep this page open and the screen
+    on; Chrome drops the connection if you lock the phone or switch apps (it reconnects when you return).
+    Nothing leaves your phone unless you save the CSV.
+  </div>
+  <footer>RMSSD = beat-to-beat variability over the last 60 s of clean R-R intervals.<br>
+    Not a medical device.</footer>
+</main>
+
+<script>
+/* ===================== pure helpers (also unit-tested) ===================== */
+/** Parse a Bluetooth Heart Rate Measurement (0x2A37) value. Returns {hr, rr[], contact}. */
+function parseHeartRate(view) {
+  const flags = view.getUint8(0);
+  let i = 1, hr;
+  if (flags & 0x01) { hr = view.getUint16(i, true); i += 2; } else { hr = view.getUint8(i); i += 1; }
+  const contactSupported = !!(flags & 0x04);
+  const contact = contactSupported ? !!(flags & 0x02) : null;
+  if (flags & 0x08) i += 2; // energy expended
+  const rr = [];
+  if (flags & 0x10) {
+    for (; i + 1 < view.byteLength; i += 2) rr.push(Math.round(view.getUint16(i, true) * 1000 / 1024));
+  }
+  return { hr, rr, contact };
+}
+
+/** Drop impossible beats and ectopic jumps (>20% change from the previous kept beat). */
+function cleanRR(rr) {
+  const out = [];
+  for (const v of rr) {
+    if (v < 300 || v > 2000) continue;
+    if (out.length && Math.abs(v - out[out.length - 1]) / out[out.length - 1] > 0.2) continue;
+    out.push(v);
+  }
+  return out;
+}
+
+function rmssd(rr) {
+  if (rr.length < 3) return null;
+  let s = 0;
+  for (let k = 1; k < rr.length; k++) { const d = rr[k] - rr[k - 1]; s += d * d; }
+  return Math.sqrt(s / (rr.length - 1));
+}
+
+function zoneFor(hr, maxHr) {
+  const p = hr / maxHr;
+  if (p < 0.5) return null;
+  if (p < 0.6) return 'Zone 1';
+  if (p < 0.7) return 'Zone 2';
+  if (p < 0.8) return 'Zone 3';
+  if (p < 0.9) return 'Zone 4';
+  return 'Zone 5';
+}
+
+/* ===================== app ===================== */
+const $ = (id) => document.getElementById(id);
+const HR_SERVICE = 'heart_rate', HR_CHAR = 'heart_rate_measurement';
+
+const state = {
+  device: null, char: null, demoTimer: null, wakeLock: null, wantConnected: false,
+  start: null, samples: [],   // {t, hr, rr[]}
+  rrPoints: [],               // {t, v} raw rr with timestamps
+  lastDataAt: 0, noDataTimer: null,
+};
+
+function setStatus(text, kind) {
+  $('statusText').textContent = text;
+  $('dot').className = 'dot' + (kind ? ' ' + kind : '');
+}
+
+function storeSave() {
+  try { localStorage.setItem('livehr.maxHr', $('maxHr').value); } catch (e) {}
+}
+try { const m = localStorage.getItem('livehr.maxHr'); if (m) $('maxHr').value = m; } catch (e) {}
+$('maxHr').addEventListener('change', storeSave);
+
+let embedded = false;
+try { embedded = window.top !== window.self; } catch (e) { embedded = true; }
+const bluetoothBlocked = (() => {
+  try {
+    const pp = document.permissionsPolicy || document.featurePolicy;
+    return pp ? !pp.allowsFeature('bluetooth') : false;
+  } catch (e) { return false; }
+})();
+
+if (embedded || bluetoothBlocked || !window.isSecureContext) {
+  const u = $('unsupported');
+  const href = location.protocol === 'https:' ? location.href : null;
+  u.innerHTML = 'Bluetooth is blocked here because this page is opened inside a preview, not directly. ' +
+    'Open your GitHub Pages address (<b>https://&lt;username&gt;.github.io/&lt;repo&gt;/</b>) in Chrome\'s address bar.' +
+    (href ? ` <a href="${href}" target="_blank" rel="noopener" style="color:#fff;font-weight:600">Open directly ↗</a>` : '') +
+    ' You can still try <b>Demo</b>.';
+  u.classList.remove('hidden');
+  $('connectBtn').disabled = true;
+} else if (!('bluetooth' in navigator)) {
+  $('unsupported').classList.remove('hidden');
+  $('connectBtn').disabled = true;
+}
+
+/* ---- data intake ---- */
+function onMeasurement(hr, rr, t = Date.now()) {
+  if (!state.start) state.start = t;
+  state.lastDataAt = t;
+  $('noData').classList.add('hidden');
+  if (hr > 0) state.samples.push({ t, hr, rr });
+  let rt = t - rr.reduce((a, b) => a + b, 0);
+  for (const v of rr) { rt += v; state.rrPoints.push({ t: rt, v }); }
+  $('saveBtn').disabled = state.samples.length === 0;
+  const h = $('heart'); h.classList.add('beat'); setTimeout(() => h.classList.remove('beat'), 140);
+  render();
+}
+
+function render() {
+  const s = state.samples;
+  const last = s[s.length - 1];
+  $('bpm').textContent = last ? last.hr : '--';
+  const z = last ? zoneFor(last.hr, +$('maxHr').value || 190) : null;
+  $('zone').textContent = z || ''; $('zone').classList.toggle('hidden', !z);
+
+  if (s.length) {
+    const hrs = s.map((x) => x.hr);
+    $('avg').textContent = Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length);
+    $('minmax').textContent = Math.min(...hrs) + '/' + Math.max(...hrs);
+  }
+  const now = Date.now();
+  const recent = cleanRR(state.rrPoints.filter((p) => p.t > now - 60000).map((p) => p.v));
+  const r = rmssd(recent);
+  $('rmssd').textContent = r == null ? '--' : Math.round(r);
+  const all = rmssd(cleanRR(state.rrPoints.map((p) => p.v)));
+  $('rmssdAll').textContent = all == null ? '--' : Math.round(all);
+  const lr = state.rrPoints[state.rrPoints.length - 1];
+  $('lastRR').textContent = lr ? lr.v : '--';
+  $('beats').textContent = state.rrPoints.length;
+  $('rrNote').textContent = state.samples.length && !state.rrPoints.length ? 'band not sending R-R' : '';
+  drawCharts();
+}
+
+setInterval(() => {
+  if (state.start) {
+    const sec = Math.floor((Date.now() - state.start) / 1000);
+    const hh = Math.floor(sec / 3600), mm = Math.floor(sec / 60) % 60, ss = sec % 60;
+    $('elapsed').textContent = (hh ? hh + ':' : '') + String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+  }
+  if (state.samples.length) drawCharts();
+}, 1000);
+
+/* ---- charts ---- */
+function prepCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+function drawSeries(canvas, pts, windowMs, color, pad, fill, labelFmt) {
+  const { ctx, w, h } = prepCanvas(canvas);
+  const now = Date.now();
+  const vis = pts.filter((p) => p.t >= now - windowMs);
+  if (vis.length < 2) return null;
+  let lo = Math.min(...vis.map((p) => p.v)), hi = Math.max(...vis.map((p) => p.v));
+  lo -= pad; hi += pad;
+  const left = 30, top = 6, bottom = 6, ch = h - top - bottom, cw = w - left;
+  const x = (t) => left + ((t - (now - windowMs)) / windowMs) * cw;
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * ch;
+
+  ctx.strokeStyle = '#232a32'; ctx.fillStyle = '#5d6670'; ctx.font = '10px system-ui'; ctx.lineWidth = 1;
+  for (let k = 0; k <= 2; k++) {
+    const v = lo + ((hi - lo) * k) / 2, yy = y(v);
+    ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w, yy); ctx.stroke();
+    ctx.fillText(labelFmt(v), 0, yy + 3);
+  }
+  ctx.beginPath();
+  vis.forEach((p, k) => (k ? ctx.lineTo(x(p.t), y(p.v)) : ctx.moveTo(x(p.t), y(p.v))));
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  if (fill) {
+    ctx.lineTo(x(vis[vis.length - 1].t), h - bottom); ctx.lineTo(x(vis[0].t), h - bottom); ctx.closePath();
+    const g = ctx.createLinearGradient(0, top, 0, h);
+    g.addColorStop(0, fill); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fill();
+  }
+  return { lo: Math.min(...vis.map((p) => p.v)), hi: Math.max(...vis.map((p) => p.v)) };
+}
+
+function drawCharts() {
+  const r = drawSeries($('hrCanvas'), state.samples.map((s) => ({ t: s.t, v: s.hr })), 300000,
+    '#ff4d5e', 4, 'rgba(255,77,94,.25)', (v) => Math.round(v));
+  $('hrRange').textContent = r ? `${r.lo}–${r.hi} bpm` : '';
+  drawSeries($('rrCanvas'), state.rrPoints, 120000, '#5cc8ff', 20, null, (v) => Math.round(v));
+}
+window.addEventListener('resize', drawCharts);
+
+/* ---- bluetooth ---- */
+async function connect() {
+  stopDemo();
+  try {
+    setStatus('Choose your band…', 'wait');
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [HR_SERVICE] }, { namePrefix: 'WHOOP' }],
+      optionalServices: [HR_SERVICE, 'battery_service'],
+    });
+    state.device = device; state.wantConnected = true;
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    await openGatt();
+  } catch (e) {
+    if (e.name === 'NotFoundError') setStatus('Not connected');
+    else if (e.name === 'SecurityError') {
+      setStatus('Bluetooth blocked');
+      $('unsupported').innerHTML = 'Bluetooth is blocked on this page. Open your GitHub Pages address ' +
+        'directly in Chrome (not a preview or in-app viewer).';
+      $('unsupported').classList.remove('hidden');
+    }
+    else { setStatus('Error: ' + e.message); console.error(e); }
+  }
+}
+
+async function openGatt() {
+  const d = state.device;
+  setStatus('Connecting to ' + (d.name || 'band') + '…', 'wait');
+  const server = await d.gatt.connect();
+  const svc = await server.getPrimaryService(HR_SERVICE);
+  const ch = await svc.getCharacteristic(HR_CHAR);
+  ch.addEventListener('characteristicvaluechanged', (ev) => {
+    const m = parseHeartRate(ev.target.value);
+    onMeasurement(m.hr, m.rr);
+  });
+  await ch.startNotifications();
+  state.char = ch;
+  setStatus(d.name || 'Connected', 'on');
+  $('connectBtn').textContent = 'Disconnect';
+  readBattery(server);
+  requestWakeLock();
+  clearTimeout(state.noDataTimer);
+  const since = Date.now();
+  state.noDataTimer = setTimeout(() => {
+    if (state.lastDataAt < since) $('noData').classList.remove('hidden');
+  }, 20000);
+}
+
+async function readBattery(server) {
+  try {
+    const b = await (await server.getPrimaryService('battery_service')).getCharacteristic('battery_level');
+    const v = await b.readValue();
+    $('battery').textContent = 'Battery ' + v.getUint8(0) + '%';
+  } catch (e) { /* optional */ }
+}
+
+async function onDisconnected() {
+  state.char = null;
+  if (!state.wantConnected) return;
+  setStatus('Reconnecting…', 'wait');
+  for (let attempt = 0; attempt < 30 && state.wantConnected; attempt++) {
+    await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 15000)));
+    if (document.hidden) { attempt--; continue; } // wait until the page is visible again
+    try { await openGatt(); return; } catch (e) { /* retry */ }
+  }
+  setStatus('Disconnected');
+  $('connectBtn').textContent = 'Connect band';
+}
+
+function disconnect() {
+  state.wantConnected = false;
+  if (state.device && state.device.gatt.connected) state.device.gatt.disconnect();
+  setStatus('Not connected');
+  $('connectBtn').textContent = 'Connect band';
+  releaseWakeLock();
+}
+
+$('connectBtn').addEventListener('click', () => {
+  if (state.wantConnected) disconnect(); else connect();
+});
+
+/* ---- keep the screen on while connected ---- */
+async function requestWakeLock() {
+  if (!$('keepAwake').checked || !('wakeLock' in navigator)) return;
+  try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function releaseWakeLock() { if (state.wakeLock) { state.wakeLock.release(); state.wakeLock = null; } }
+$('keepAwake').addEventListener('change', () => ($('keepAwake').checked && (state.wantConnected || state.demoTimer)) ? requestWakeLock() : releaseWakeLock());
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && (state.wantConnected || state.demoTimer)) requestWakeLock();
+});
+
+/* ---- demo mode ---- */
+function startDemo() {
+  if (state.wantConnected) disconnect();
+  if (state.demoTimer) { stopDemo(); return; }
+  let base = 62, t = 0;
+  setStatus('Demo', 'on');
+  $('demoBtn').textContent = 'Stop demo';
+  requestWakeLock();
+  state.demoTimer = setInterval(() => {
+    t++;
+    base += (Math.random() - 0.5) * 1.2 + (t % 120 < 60 ? 0.15 : -0.15);
+    base = Math.max(50, Math.min(165, base));
+    const rr = [];
+    let acc = 0;
+    while (acc < 1000) {
+      const v = Math.round(60000 / base + Math.sin(t / 2.5) * 35 + (Math.random() - 0.5) * 30);
+      rr.push(v); acc += v;
+    }
+    onMeasurement(Math.round(60000 / (acc / rr.length)), rr);
+  }, 1000);
+}
+function stopDemo() {
+  if (!state.demoTimer) return;
+  clearInterval(state.demoTimer); state.demoTimer = null;
+  $('demoBtn').textContent = 'Demo (no band)';
+  setStatus('Not connected');
+  releaseWakeLock();
+}
+$('demoBtn').addEventListener('click', startDemo);
+
+/* ---- save / reset ---- */
+function toCSV() {
+  const rows = ['time_iso,unix_ms,heart_rate_bpm,rr_ms'];
+  for (const s of state.samples) rows.push(`${new Date(s.t).toISOString()},${s.t},${s.hr},${s.rr.join(' ')}`);
+  return rows.join('\n') + '\n';
+}
+$('saveBtn').addEventListener('click', () => {
+  const d = new Date(state.start || Date.now());
+  const p = (n) => String(n).padStart(2, '0');
+  const name = `hr-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.csv`;
+  const url = URL.createObjectURL(new Blob([toCSV()], { type: 'text/csv' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+$('resetBtn').addEventListener('click', () => {
+  if (state.samples.length && !confirm('Clear this session? Save the CSV first if you want it.')) return;
+  state.samples = []; state.rrPoints = []; state.start = state.wantConnected || state.demoTimer ? Date.now() : null;
+  $('avg').textContent = $('minmax').textContent = '--';
+  $('elapsed').textContent = '00:00';
+  $('saveBtn').disabled = true;
+  render();
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (state.samples.length > 30) { e.preventDefault(); e.returnValue = ''; }
+});
+render();
+</script>
+</body>
+</html>
